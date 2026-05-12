@@ -1,12 +1,74 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc;
 use arrow::array::*;
 use arrow::datatypes::DataType;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::file::metadata::ParquetMetaData;
+use serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub struct ColumnMeta {
     pub name: String,
     pub dtype: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct MetaSummary {
+    pub file: FileSummary,
+    pub columns: Vec<MetaColumnRow>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FileSummary {
+    pub path: String,
+    pub size: String,
+    pub parquet_version: String,
+    pub created_by: String,
+    pub total_rows: String,
+    pub column_count: String,
+    pub row_group_count: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct MetaColumnRow {
+    pub name: String,
+    pub dtype: String,
+    pub compression: String,
+    pub encodings: String,
+    pub uncompressed_size: String,
+    pub compressed_size: String,
+    pub null_count: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct PandasColumnMeta {
+    pandas_type: Option<String>,
+    numpy_type: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ColumnSummary {
+    name: String,
+    dtype: String,
+    compression: BTreeSet<String>,
+    encodings: BTreeSet<String>,
+    uncompressed_size: u64,
+    compressed_size: u64,
+    null_count: Option<u64>,
+}
+
+impl ColumnSummary {
+    fn new(name: String, dtype: String) -> Self {
+        Self {
+            name,
+            dtype,
+            compression: BTreeSet::new(),
+            encodings: BTreeSet::new(),
+            uncompressed_size: 0,
+            compressed_size: 0,
+            null_count: Some(0),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -17,6 +79,8 @@ pub struct ParquetData {
     pub col_count: usize,
     pub file_size: u64,
     pub file_path: String,
+    pub meta_summary: MetaSummary,
+    pub meta_text: String,
 }
 
 pub enum LoadResult {
@@ -45,6 +109,7 @@ fn load_file(path: &str) -> LoadResult {
         Err(e) => return LoadResult::Err(format!("Cannot read parquet: {e}")),
     };
 
+    let parquet_metadata = builder.metadata().clone();
     let schema = builder.schema().clone();
     let reader = match builder.build() {
         Ok(r) => r,
@@ -59,6 +124,9 @@ fn load_file(path: &str) -> LoadResult {
             dtype: friendly_dtype(f.data_type()),
         })
         .collect();
+
+    let meta_summary = build_meta_summary(path, file_size, parquet_metadata.as_ref(), &columns);
+    let meta_text = build_metadata_text(path, file_size, parquet_metadata.as_ref(), &columns);
 
     let col_count = columns.len();
     let mut all_rows: Vec<Vec<String>> = Vec::new();
@@ -88,7 +156,335 @@ fn load_file(path: &str) -> LoadResult {
         col_count,
         file_size,
         file_path: path.to_string(),
+        meta_summary,
+        meta_text,
     })
+}
+
+fn build_meta_summary(
+    path: &str,
+    file_size: u64,
+    metadata: &ParquetMetaData,
+    columns: &[ColumnMeta],
+) -> MetaSummary {
+    let file_meta = metadata.file_metadata();
+    let pandas_columns = extract_pandas_columns(file_meta.key_value_metadata());
+    let column_summaries = build_column_summaries(metadata, columns, &pandas_columns);
+
+    MetaSummary {
+        file: FileSummary {
+            path: path.to_string(),
+            size: fmt_size(file_size as f64),
+            parquet_version: file_meta.version().to_string(),
+            created_by: file_meta.created_by().unwrap_or("unknown").to_string(),
+            total_rows: file_meta.num_rows().to_string(),
+            column_count: file_meta.schema_descr().num_columns().to_string(),
+            row_group_count: metadata.num_row_groups().to_string(),
+        },
+        columns: column_summaries
+            .iter()
+            .map(|summary| MetaColumnRow {
+                name: summary.name.clone(),
+                dtype: summary.dtype.clone(),
+                compression: join_set(&summary.compression),
+                encodings: join_set(&summary.encodings),
+                uncompressed_size: fmt_size(summary.uncompressed_size as f64),
+                compressed_size: fmt_size(summary.compressed_size as f64),
+                null_count: summary
+                    .null_count
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| String::from("unknown")),
+            })
+            .collect(),
+    }
+}
+
+fn build_metadata_text(
+    path: &str,
+    file_size: u64,
+    metadata: &ParquetMetaData,
+    columns: &[ColumnMeta],
+) -> String {
+    let file_meta = metadata.file_metadata();
+    let mut lines: Vec<String> = Vec::new();
+    let pandas_columns = extract_pandas_columns(file_meta.key_value_metadata());
+    let column_summaries = build_column_summaries(metadata, columns, &pandas_columns);
+
+    lines.push(String::from("[Section 1: Summary]"));
+    lines.push(String::from("+- File info"));
+    lines.push(format!("|  +- Path: {path}"));
+    lines.push(format!("|  +- Size: {}", fmt_size(file_size as f64)));
+    lines.push(format!("|  +- Parquet version: {}", file_meta.version()));
+    lines.push(format!("|  +- Created by: {}", file_meta.created_by().unwrap_or("unknown")));
+    lines.push(format!("|  +- Total rows: {}", file_meta.num_rows()));
+    lines.push(format!("|  +- Columns: {}", file_meta.schema_descr().num_columns()));
+    lines.push(format!("|  +- Row groups: {}", metadata.num_row_groups()));
+    lines.push(String::from("+- Column details"));
+    append_table(
+        &mut lines,
+        &["Column", "Data type", "Compression", "Encodings", "Uncompressed", "Compressed", "Null count"],
+        &column_summaries
+            .iter()
+            .map(|summary| {
+                vec![
+                    summary.name.clone(),
+                    summary.dtype.clone(),
+                    join_set(&summary.compression),
+                    join_set(&summary.encodings),
+                    fmt_size(summary.uncompressed_size as f64),
+                    fmt_size(summary.compressed_size as f64),
+                    summary
+                        .null_count
+                        .map(|count| count.to_string())
+                        .unwrap_or_else(|| String::from("unknown")),
+                ]
+            })
+            .collect::<Vec<_>>(),
+    );
+    lines.push(String::new());
+
+    lines.push(String::from("Parquet metadata"));
+    lines.push(String::from("+- File"));
+    lines.push(format!("|  +- Path: {path}"));
+    lines.push(format!("|  +- Size: {}", fmt_size(file_size as f64)));
+    lines.push(format!("|  +- Parquet format version: {}", file_meta.version()));
+    lines.push(format!("|  +- Created by: {}", file_meta.created_by().unwrap_or("unknown")));
+    lines.push(format!("|  +- Rows (file metadata): {}", file_meta.num_rows()));
+    lines.push(format!("|  +- Columns (schema leaf): {}", file_meta.schema_descr().num_columns()));
+    lines.push(format!("|  +- Row groups: {}", metadata.num_row_groups()));
+
+    lines.push(format!("+- Columns ({})", columns.len()));
+    for (index, column) in columns.iter().enumerate() {
+        lines.push(format!("|  +- [{index}] {}: {}", column.name, column.dtype));
+    }
+
+    let key_values = file_meta.key_value_metadata();
+    let key_value_count = key_values.map_or(0, |v| v.len());
+    lines.push(format!("+- Key-value metadata ({key_value_count})"));
+
+    if let Some(items) = key_values {
+        for item in items {
+            lines.push(format!("|  +- {}", item.key));
+            match item.value.as_deref() {
+                Some(value) => lines.push(format!("|  |  +- Value: {value}")),
+                None => lines.push(String::from("|  |  +- Value: <null>")),
+            }
+        }
+    }
+
+    lines.push(format!("+- Row groups ({})", metadata.num_row_groups()));
+
+    for index in 0..metadata.num_row_groups() {
+        let row_group = metadata.row_group(index);
+        let mut codecs: BTreeSet<String> = BTreeSet::new();
+
+        for col_idx in 0..row_group.num_columns() {
+            let codec = format!("{:?}", row_group.column(col_idx).compression());
+            codecs.insert(codec);
+        }
+
+        let codecs_str = if codecs.is_empty() {
+            String::from("none")
+        } else {
+            codecs.into_iter().collect::<Vec<_>>().join(", ")
+        };
+
+        lines.push(format!("   +- RG #{index}"));
+        lines.push(format!("      +- Rows: {}", row_group.num_rows()));
+        lines.push(format!(
+            "      +- Compressed size: {}",
+            fmt_size(row_group.compressed_size() as f64)
+        ));
+        lines.push(format!(
+            "      +- Uncompressed size: {}",
+            fmt_size(row_group.total_byte_size() as f64)
+        ));
+        lines.push(format!("      +- Codecs: {codecs_str}"));
+        lines.push(format!("      +- Column chunks ({})", row_group.num_columns()));
+
+        for col_idx in 0..row_group.num_columns() {
+            let chunk = row_group.column(col_idx);
+            let col_path = chunk.column_path().string();
+            lines.push(format!(
+                "      |  +- [{}] path={}, compression={:?}, values={}, compressed={}, uncompressed={}",
+                col_idx,
+                col_path,
+                chunk.compression(),
+                chunk.num_values(),
+                fmt_size(chunk.compressed_size() as f64),
+                fmt_size(chunk.uncompressed_size() as f64),
+            ));
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn build_column_summaries(
+    metadata: &ParquetMetaData,
+    columns: &[ColumnMeta],
+    pandas_columns: &BTreeMap<String, PandasColumnMeta>,
+) -> Vec<ColumnSummary> {
+    let mut summaries: Vec<ColumnSummary> = columns
+        .iter()
+        .map(|column| {
+            let mut dtype = column.dtype.clone();
+            if let Some(pandas_meta) = pandas_columns.get(&column.name) {
+                let mut extra_parts: Vec<String> = Vec::new();
+                if let Some(pandas_type) = &pandas_meta.pandas_type {
+                    extra_parts.push(format!("pandas={pandas_type}"));
+                }
+                if let Some(numpy_type) = &pandas_meta.numpy_type {
+                    extra_parts.push(format!("numpy={numpy_type}"));
+                }
+                if !extra_parts.is_empty() {
+                    dtype = format!("{} [{}]", dtype, extra_parts.join(", "));
+                }
+            }
+            ColumnSummary::new(column.name.clone(), dtype)
+        })
+        .collect();
+
+    for row_group_index in 0..metadata.num_row_groups() {
+        let row_group = metadata.row_group(row_group_index);
+        for chunk_index in 0..row_group.num_columns() {
+            let chunk = row_group.column(chunk_index);
+            if let Some(summary) = summaries.get_mut(chunk_index) {
+                summary
+                    .compression
+                    .insert(format!("{:?}", chunk.compression()));
+                for encoding in chunk.encodings() {
+                    summary.encodings.insert(format!("{encoding:?}"));
+                }
+                if let Ok(size) = u64::try_from(chunk.uncompressed_size()) {
+                    summary.uncompressed_size += size;
+                }
+                if let Ok(size) = u64::try_from(chunk.compressed_size()) {
+                    summary.compressed_size += size;
+                }
+                match chunk.statistics().and_then(|stats| stats.null_count_opt()) {
+                    Some(count) => {
+                        if let Some(total) = summary.null_count.as_mut() {
+                            *total += count;
+                        }
+                    }
+                    None => summary.null_count = None,
+                }
+            }
+        }
+    }
+
+    summaries
+}
+
+fn extract_pandas_columns(
+    key_values: Option<&Vec<parquet::format::KeyValue>>,
+) -> BTreeMap<String, PandasColumnMeta> {
+    let Some(items) = key_values else {
+        return BTreeMap::new();
+    };
+
+    let Some(pandas_json) = items
+        .iter()
+        .find(|item| item.key == "pandas")
+        .and_then(|item| item.value.as_deref())
+    else {
+        return BTreeMap::new();
+    };
+
+    let Ok(root) = serde_json::from_str::<Value>(pandas_json) else {
+        return BTreeMap::new();
+    };
+
+    let Some(columns) = root.get("columns").and_then(Value::as_array) else {
+        return BTreeMap::new();
+    };
+
+    let mut result = BTreeMap::new();
+    for column in columns {
+        let field_name = column
+            .get("field_name")
+            .and_then(Value::as_str)
+            .or_else(|| column.get("name").and_then(Value::as_str));
+        let Some(field_name) = field_name else {
+            continue;
+        };
+
+        result.insert(
+            field_name.to_string(),
+            PandasColumnMeta {
+                pandas_type: column
+                    .get("pandas_type")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                numpy_type: column
+                    .get("numpy_type")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+            },
+        );
+    }
+
+    result
+}
+
+fn append_table(lines: &mut Vec<String>, headers: &[&str], rows: &[Vec<String>]) {
+    let mut widths: Vec<usize> = headers.iter().map(|header| header.chars().count()).collect();
+
+    for row in rows {
+        for (index, cell) in row.iter().enumerate() {
+            if index < widths.len() {
+                widths[index] = widths[index].max(cell.chars().count());
+            }
+        }
+    }
+
+    lines.push(format!("|  {}", format_table_row(headers.iter().map(|item| item.to_string()).collect::<Vec<_>>().as_slice(), &widths)));
+    lines.push(format!(
+        "|  {}",
+        widths
+            .iter()
+            .map(|width| "-".repeat(*width))
+            .collect::<Vec<_>>()
+            .join("-+-")
+    ));
+
+    for row in rows {
+        lines.push(format!("|  {}", format_table_row(row, &widths)));
+    }
+}
+
+fn format_table_row(cells: &[String], widths: &[usize]) -> String {
+    cells
+        .iter()
+        .enumerate()
+        .map(|(index, cell)| {
+            let padding = widths[index].saturating_sub(cell.chars().count());
+            format!("{}{}", cell, " ".repeat(padding))
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+fn join_set(values: &BTreeSet<String>) -> String {
+    if values.is_empty() {
+        return String::from("unknown");
+    }
+    values.iter().cloned().collect::<Vec<_>>().join(", ")
+}
+
+fn fmt_size(bytes: f64) -> String {
+    let mut value = bytes;
+    for unit in ["B", "KB", "MB", "GB", "TB"] {
+        if value < 1024.0 {
+            if unit == "B" {
+                return format!("{value:.0} {unit}");
+            }
+            return format!("{value:.1} {unit}");
+        }
+        value /= 1024.0;
+    }
+    format!("{value:.1} PB")
 }
 
 fn friendly_dtype(dt: &DataType) -> String {

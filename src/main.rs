@@ -2,6 +2,7 @@
 
 mod app;
 mod loader;
+mod recent;
 mod table;
 
 fn main() -> eframe::Result {
