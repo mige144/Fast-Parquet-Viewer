@@ -126,10 +126,11 @@ impl ParquetApp {
 
     fn reset_row_filter_for_len(&mut self, len: usize) {
         let max_row = len.saturating_sub(1);
+        let default_to = max_row.min(5000);
         self.row_from = 0;
-        self.row_to = max_row;
+        self.row_to = default_to;
         self.row_from_input = String::from("0");
-        self.row_to_input = max_row.to_string();
+        self.row_to_input = default_to.to_string();
     }
 
     fn apply_row_filter_inputs(&mut self, len: usize) {
@@ -605,8 +606,9 @@ fn draw_table(
         .column(Column::exact(64.0))
         .resizable(true);
 
-    for _ in 0..col_count {
-        builder = builder.column(Column::initial(120.0).at_least(40.0).clip(true));
+    for i in 0..col_count {
+        let width = if i == 0 { 160.0 } else { 120.0 };
+        builder = builder.column(Column::initial(width).at_least(40.0).clip(true));
     }
 
     builder
