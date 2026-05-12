@@ -21,6 +21,12 @@ Windows binary available and compiled under `target/release/FastParquetViewer.ex
 - **CLI support** — pass a file path as an argument: `ParquetViewer.exe data.parquet`
 - Dark theme
 
+
+- **Recent files support** —
+- **filter by row number** -
+- **load top 5000 as default **-
+
+
 ## Download
 
 Download the latest `FastParquetViewer.exe` from the [Releases](../../releases) page. It is a single self-contained executable — no installer or additional files required.
