@@ -9,3 +9,7 @@ microsoft-store/
 # OS
 .DS_Store
 Thumbs.db
+
+
+target/debug
+target/release

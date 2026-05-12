@@ -12,7 +12,7 @@ eframe = { version = "0.31", features = ["default", "persistence"] }
 egui = "0.31"
 egui_extras = { version = "0.31", features = ["default"] }
 arrow = { version = "54", default-features = false, features = ["ipc"] }
-parquet = { version = "54", default-features = false, features = ["arrow", "snap"] }
+parquet = { version = "54", default-features = false, features = ["arrow", "snap", "zstd"] }
 rfd = "0.15"
 pollster = "0.4"
 image = { version = "0.25", default-features = false, features = ["png"] }
