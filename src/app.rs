@@ -2,6 +2,7 @@ use std::sync::mpsc;
 use eframe::egui;
 use egui::{
     Color32, FontId, RichText, Stroke, Vec2,
+    scroll_area::ScrollBarVisibility,
     text::LayoutJob,
 };
 use egui_extras::{Column, TableBuilder};
@@ -18,9 +19,10 @@ struct Palette {
     accent:     Color32,
     text:       Color32,
     muted:      Color32,
-    row_alt:    Color32,
-    row_hover:  Color32,
-    header_bg:  Color32,
+    row_alt:      Color32,
+    row_hover:    Color32,
+    row_selected: Color32,
+    header_bg:    Color32,
     border:     Color32,
     null:       Color32,
 }
@@ -34,9 +36,10 @@ impl Palette {
             accent:    Color32::from_rgb(82,  145, 230),
             text:      Color32::from_rgb(220, 222, 228),
             muted:     Color32::from_rgb(120, 125, 145),
-            row_alt:   Color32::from_rgb(30,  31,  38),
-            row_hover: Color32::from_rgb(42,  48,  65),
-            header_bg: Color32::from_rgb(28,  30,  42),
+            row_alt:      Color32::from_rgb(30,  31,  38),
+            row_hover:    Color32::from_rgb(42,  48,  65),
+            row_selected: Color32::from_rgba_premultiplied(82, 145, 230, 90),
+            header_bg:    Color32::from_rgb(28,  30,  42),
             border:    Color32::from_rgb(50,  52,  65),
             null:      Color32::from_rgb(80,  85,  105),
         }
@@ -50,9 +53,10 @@ impl Palette {
             accent:    Color32::from_rgb(50,  120, 210),
             text:      Color32::from_rgb(25,  27,  35),
             muted:     Color32::from_rgb(110, 115, 135),
-            row_alt:   Color32::from_rgb(242, 243, 247),
-            row_hover: Color32::from_rgb(218, 228, 248),
-            header_bg: Color32::from_rgb(230, 232, 242),
+            row_alt:      Color32::from_rgb(242, 243, 247),
+            row_hover:    Color32::from_rgb(218, 228, 248),
+            row_selected: Color32::from_rgba_premultiplied(50, 120, 210, 70),
+            header_bg:    Color32::from_rgb(230, 232, 242),
             border:    Color32::from_rgb(205, 207, 220),
             null:      Color32::from_rgb(170, 175, 195),
         }
@@ -216,6 +220,8 @@ impl eframe::App for ParquetApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        apply_scroll_style(ctx);
+
         let palette = if self.dark_mode { Palette::dark() } else { Palette::light() };
 
         self.poll_loader(ctx);
@@ -225,6 +231,9 @@ impl eframe::App for ParquetApp {
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) {
                 self.search.clear();
+                if let State::Loaded(_, ts) = &mut self.state {
+                    ts.selected_row = None;
+                }
             }
         });
 
@@ -364,11 +373,15 @@ impl eframe::App for ParquetApp {
                                     .count()
                             };
                             let size_str = fmt_size(data.file_size);
+                            let mut status = format!(
+                                "{} rows  ×  {} cols   │   {}   │   {}",
+                                fmt_num(visible), data.col_count, size_str, data.file_path
+                            );
+                            if let Some(selected) = ts.selected_row {
+                                status.push_str(&format!("   │   selected row {selected}"));
+                            }
                             ui.label(
-                                RichText::new(format!(
-                                    "{} rows  ×  {} cols   │   {}   │   {}",
-                                    fmt_num(visible), data.col_count, size_str, data.file_path
-                                ))
+                                RichText::new(status)
                                 .color(palette.muted)
                                 .size(12.0)
                             );
@@ -454,6 +467,7 @@ impl eframe::App for ParquetApp {
                         Some((summary, text)) => {
                             egui::ScrollArea::vertical()
                                 .id_salt("metadata_scroll")
+                                .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
                                 .show(ui, |ui| {
                                     draw_meta_summary(ui, &palette, summary);
                                     ui.add_space(10.0);
@@ -516,6 +530,7 @@ fn draw_meta_summary(ui: &mut egui::Ui, p: &Palette, summary: &MetaSummary) {
 
     egui::ScrollArea::horizontal()
         .id_salt("meta_columns_table")
+        .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
         .show(ui, |ui| {
             TableBuilder::new(ui)
                 .striped(true)
@@ -599,10 +614,13 @@ fn draw_table(
 
     egui::ScrollArea::horizontal()
         .id_salt("table_hscroll")
+        .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
         .show(ui, |ui| {
     let mut builder = TableBuilder::new(ui)
-        .striped(false)
+        .striped(true)
+        .sense(egui::Sense::click())
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+        .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
         .column(Column::exact(64.0))
         .resizable(true);
 
@@ -687,11 +705,11 @@ fn draw_table(
             body.rows(row_height, row_count, |mut row| {
                 let row_idx = row.index();
                 let data_row = filtered[row_idx];
-                let bg = if row_idx % 2 == 0 { p.bg } else { p.row_alt };
+                let is_selected = ts.selected_row == Some(data_row);
+                row.set_selected(is_selected);
 
                 row.col(|ui| {
                     let rect = ui.available_rect_before_wrap();
-                    ui.painter().rect_filled(rect, 0.0, p.surface);
                     ui.painter().line_segment(
                         [rect.right_top(), rect.right_bottom()],
                         Stroke::new(1.0, p.border),
@@ -708,7 +726,6 @@ fn draw_table(
                 for col_idx in 0..col_count {
                     row.col(|ui| {
                         let rect = ui.available_rect_before_wrap();
-                        ui.painter().rect_filled(rect, 0.0, bg);
                         ui.painter().line_segment(
                             [rect.right_top(), rect.right_bottom()],
                             Stroke::new(1.0, p.border),
@@ -748,6 +765,10 @@ fn draw_table(
                             );
                         }
                     });
+                }
+
+                if row.response().clicked() {
+                    ts.selected_row = Some(data_row);
                 }
             });
         });
@@ -865,6 +886,31 @@ fn draw_error(ui: &mut egui::Ui, p: &Palette, msg: &str) {
 
 // ── Styling ───────────────────────────────────────────────────────────────────
 
+const SCROLL_BAR_WIDTH: f32 = 14.0;
+
+fn configure_scroll_style(scroll: &mut egui::style::ScrollStyle) {
+    scroll.floating = false;
+    scroll.foreground_color = true;
+    scroll.bar_width = SCROLL_BAR_WIDTH;
+    scroll.floating_width = SCROLL_BAR_WIDTH;
+    scroll.bar_inner_margin = 4.0;
+    scroll.bar_outer_margin = 2.0;
+    scroll.floating_allocated_width =
+        scroll.bar_inner_margin + SCROLL_BAR_WIDTH + scroll.bar_outer_margin;
+    scroll.dormant_background_opacity = 1.0;
+    scroll.dormant_handle_opacity = 1.0;
+    scroll.active_background_opacity = 1.0;
+    scroll.active_handle_opacity = 1.0;
+    scroll.interact_background_opacity = 1.0;
+    scroll.interact_handle_opacity = 1.0;
+}
+
+fn apply_scroll_style(ctx: &egui::Context) {
+    ctx.style_mut(|style| {
+        configure_scroll_style(&mut style.spacing.scroll);
+    });
+}
+
 fn style_egui(ctx: &egui::Context, p: &Palette, dark: bool) {
     let mut style = (*ctx.style()).clone();
 
@@ -878,16 +924,16 @@ fn style_egui(ctx: &egui::Context, p: &Palette, dark: bool) {
     style.visuals.widgets.inactive.bg_fill = p.surface2;
     style.visuals.widgets.hovered.bg_fill = p.row_hover;
     style.visuals.widgets.active.bg_fill = p.accent;
-    style.visuals.selection.bg_fill = Color32::from_rgba_premultiplied(
-        p.accent.r(), p.accent.g(), p.accent.b(), 60,
-    );
+    style.visuals.selection.bg_fill = p.row_selected;
     style.visuals.selection.stroke = Stroke::new(1.0, p.accent);
     style.visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, p.text);
     style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, p.text);
+    style.visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, p.text);
+    style.visuals.widgets.active.fg_stroke = Stroke::new(1.0, p.text);
 
     style.spacing.item_spacing = Vec2::new(8.0, 4.0);
     style.spacing.button_padding = Vec2::new(8.0, 4.0);
-    style.spacing.scroll = egui::style::ScrollStyle::solid();
+    configure_scroll_style(&mut style.spacing.scroll);
 
     ctx.set_style(style);
 }

@@ -3,6 +3,7 @@ pub struct TableState {
     pub sort_col: Option<usize>,
     pub sort_asc: bool,
     pub row_order: Vec<usize>, // indices into data.rows
+    pub selected_row: Option<usize>,
 }
 
 impl TableState {
@@ -11,6 +12,7 @@ impl TableState {
             sort_col: None,
             sort_asc: true,
             row_order: (0..row_count).collect(),
+            selected_row: None,
         }
     }
 
