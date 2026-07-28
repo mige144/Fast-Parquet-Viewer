@@ -9,7 +9,6 @@ import json
 import os
 import sys
 import zipfile
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -71,58 +70,60 @@ def compare(left_path: str, right_path: str, key_arg: str | None, output_dir: st
     all_common_cols = sorted(set(left_cols) | set(right_cols))
 
     # 4. Outer join on key
+    df_left[key_col] = df_left[key_col].astype(str)
+    df_right[key_col] = df_right[key_col].astype(str)
+
+    if df_left[key_col].duplicated().any():
+        raise ValueError(f"左侧文件 key 列 '{key_col}' 包含重复值，无法唯一标识行")
+    if df_right[key_col].duplicated().any():
+        raise ValueError(f"右侧文件 key 列 '{key_col}' 包含重复值，无法唯一标识行")
+
     df_left_idx = df_left.set_index(key_col)
     df_right_idx = df_right.set_index(key_col)
     joined = df_left_idx.join(df_right_idx, how="outer", lsuffix="_LEFT_", rsuffix="_RIGHT_")
 
-    # 5. 构建对比结果 DataFrame
-    result_rows = []
-    for idx_val, row in joined.iterrows():
-        row_data = {key_col: idx_val}
+    joined_columns_set = set(joined.columns)
 
-        # 判断行级别是否存在（key 是否在两侧都存在）
-        in_left = idx_val in df_left_idx.index
-        in_right = idx_val in df_right_idx.index
+    # 5. 构建对比结果 DataFrame（向量化）
+    in_left_series = joined.index.isin(df_left_idx.index)
+    in_right_series = joined.index.isin(df_right_idx.index)
 
-        if in_left and not in_right:
-            status = "only_left"
-        elif not in_left and in_right:
-            status = "only_right"
-        elif not in_left and not in_right:
-            continue  # 不应出现在 outer join 中
-        else:
-            status = "identical"
+    status_series = pd.Series("identical", index=joined.index)
+    status_series[in_left_series & ~in_right_series] = "only_left"
+    status_series[~in_left_series & in_right_series] = "only_right"
 
-        for col in all_common_cols:
-            left_col_name = f"{col}_LEFT_"
-            right_col_name = f"{col}_RIGHT_"
+    # 对比公共列：仅在 status 仍为 "identical" 的行上比较
+    mask = status_series == "identical"
+    for col in all_common_cols:
+        left_col_name = f"{col}_LEFT_"
+        right_col_name = f"{col}_RIGHT_"
 
-            left_val = row.get(left_col_name) if left_col_name in joined.columns else np.nan
-            right_val = row.get(right_col_name) if right_col_name in joined.columns else np.nan
+        left_vals = joined[left_col_name] if left_col_name in joined_columns_set else pd.Series(np.nan, index=joined.index)
+        right_vals = joined[right_col_name] if right_col_name in joined_columns_set else pd.Series(np.nan, index=joined.index)
 
-            row_data[f"left.{col}"] = row.get(left_col_name) if left_col_name in joined.columns else None
-            row_data[f"right.{col}"] = row.get(right_col_name) if right_col_name in joined.columns else None
+        # 转为字符串比较，NaN -> "nan"，两者均为 NaN 时视为相等
+        left_str = left_vals.astype(str)
+        right_str = right_vals.astype(str)
+        not_equal = (left_str != right_str) & mask
+        status_series[not_equal] = "different"
 
-            # 仅在两侧都存在 key 时才比较值
-            if status == "identical":
-                both_nan = pd.isna(left_val) and pd.isna(right_val)
-                if both_nan:
-                    continue
-                # NaN vs 非 NaN 视为不同
-                if pd.isna(left_val) != pd.isna(right_val):
-                    status = "different"
-                    continue
-                try:
-                    if left_val != right_val:
-                        status = "different"
-                except (TypeError, ValueError):
-                    if str(left_val) != str(right_val):
-                        status = "different"
+    # 构建结果 DataFrame
+    result_data = {key_col: joined.index.values}
+    for col in all_common_cols:
+        left_col_name = f"{col}_LEFT_"
+        right_col_name = f"{col}_RIGHT_"
 
-        row_data["_compare_status"] = status
-        result_rows.append(row_data)
+        result_data[f"left.{col}"] = (
+            joined[left_col_name].values if left_col_name in joined_columns_set
+            else np.full(len(joined), np.nan)
+        )
+        result_data[f"right.{col}"] = (
+            joined[right_col_name].values if right_col_name in joined_columns_set
+            else np.full(len(joined), np.nan)
+        )
 
-    result_df = pd.DataFrame(result_rows)
+    result_data["_compare_status"] = status_series.values
+    result_df = pd.DataFrame(result_data)
 
     # 6. 写入输出目录
     os.makedirs(output_dir, exist_ok=True)
