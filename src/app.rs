@@ -6,6 +6,7 @@ use egui::{
     text::LayoutJob,
 };
 use egui_extras::{Column, TableBuilder};
+use crate::compare;
 use crate::loader::{self, LoadResult, MetaSummary, ParquetData};
 use crate::table::TableState;
 use crate::recent;
@@ -88,6 +89,11 @@ pub struct ParquetApp {
     row_to_input:   String,
     row_from:       usize,
     row_to:         usize,
+    compare_state: compare::CompareState,
+    compare_output_dir: Option<String>,
+    compare_summary: Option<compare::CompareSummary>,
+    before_compare_path: Option<String>,
+    available_pythons: Vec<String>,
 }
 
 impl ParquetApp {
@@ -98,6 +104,8 @@ impl ParquetApp {
             .unwrap_or(true);
 
         let recent_files = recent::load();
+        let available_pythons = compare::detect_python_installations();
+
         let mut app = Self {
             state:        State::Empty,
             rx:           None,
@@ -109,6 +117,11 @@ impl ParquetApp {
             row_to_input:   String::from("0"),
             row_from:       0,
             row_to:         0,
+            compare_state: compare::CompareState::Hidden,
+            compare_output_dir: None,
+            compare_summary: None,
+            before_compare_path: None,
+            available_pythons,
         };
         let palette = if dark_mode { Palette::dark() } else { Palette::light() };
         style_egui(&cc.egui_ctx, &palette, dark_mode);
@@ -227,6 +240,9 @@ impl eframe::App for ParquetApp {
         self.poll_loader(ctx);
         self.handle_dropped_files(ctx);
 
+        // Render compare dialog
+        let _start_compare = draw_compare_dialog(ctx, &mut self.compare_state, &palette);
+
         // Keyboard shortcuts
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) {
@@ -276,6 +292,25 @@ impl eframe::App for ParquetApp {
                     ui.add_space(4.0);
 
                     ui.label(RichText::new("Ctrl+O  open").color(palette.muted).size(11.0));
+
+                    // ── Compare… button ──
+                    ui.add_space(4.0);
+                    ui.add(egui::Separator::default().vertical().spacing(8.0));
+                    ui.add_space(4.0);
+
+                    if ui.add(egui::Button::new(
+                        RichText::new("Compare…").color(palette.text).size(13.0)
+                    ).frame(false)).clicked() {
+                        let default_python = self.available_pythons.first().cloned().unwrap_or_default();
+                        self.compare_state = compare::CompareState::new_setup(
+                            self.available_pythons.clone(),
+                            default_python,
+                        );
+                    }
+
+                    ui.add_space(4.0);
+                    ui.add(egui::Separator::default().vertical().spacing(8.0));
+                    ui.add_space(4.0);
 
                     if let Some(row_count) = loaded_row_count {
                         ui.add_space(10.0);
@@ -494,6 +529,149 @@ impl eframe::App for ParquetApp {
                 });
         }
     }
+}
+
+// ── Compare dialog ──────────────────────────────────────────────────────────
+
+fn draw_compare_dialog(
+    ctx: &egui::Context,
+    compare_state: &mut compare::CompareState,
+    palette: &Palette,
+) -> bool {
+    let mut start_clicked = false;
+
+    if let compare::CompareState::Setup {
+        left_path,
+        right_path,
+        key_column,
+        python_path,
+        show_all,
+        available_pythons,
+    } = compare_state
+    {
+        let mut open = true;
+        let mut should_close = false;
+        egui::Window::new("\u{5bf9}\u{6bd4}\u{6587}\u{4ef6}")
+            .open(&mut open)
+            .resizable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_min_width(480.0);
+                ui.visuals_mut().override_text_color = Some(palette.text);
+
+                ui.label(RichText::new("\u{9009}\u{62e9}\u{4e24}\u{4e2a}\u{6587}\u{4ef6}\u{8fdb}\u{884c}\u{5bf9}\u{6bd4}").size(14.0).color(palette.text));
+                ui.add_space(10.0);
+
+                // Left file
+                ui.label(RichText::new("\u{5de6}\u{4fa7}\u{6587}\u{4ef6}").size(11.0).color(palette.muted));
+                ui.horizontal(|ui| {
+                    let text_edit = egui::TextEdit::singleline(left_path)
+                        .desired_width(ui.available_width() - 56.0)
+                        .hint_text("\u{9009}\u{62e9}\u{6587}\u{4ef6}...");
+                    ui.add(text_edit);
+                    if ui.button("\u{6d4f}\u{89c8}").clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("\u{6570}\u{636e}\u{6587}\u{4ef6}", &["parquet", "parq", "csv", "zip"])
+                            .pick_file()
+                        {
+                            *left_path = path.to_string_lossy().to_string();
+                        }
+                    }
+                });
+
+                ui.add_space(8.0);
+
+                // Right file
+                ui.label(RichText::new("\u{53f3}\u{4fa7}\u{6587}\u{4ef6}").size(11.0).color(palette.muted));
+                ui.horizontal(|ui| {
+                    let text_edit = egui::TextEdit::singleline(right_path)
+                        .desired_width(ui.available_width() - 56.0)
+                        .hint_text("\u{9009}\u{62e9}\u{6587}\u{4ef6}...");
+                    ui.add(text_edit);
+                    if ui.button("\u{6d4f}\u{89c8}").clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("\u{6570}\u{636e}\u{6587}\u{4ef6}", &["parquet", "parq", "csv", "zip"])
+                            .pick_file()
+                        {
+                            *right_path = path.to_string_lossy().to_string();
+                        }
+                    }
+                });
+
+                ui.add_space(8.0);
+
+                // Key column
+                ui.label(RichText::new("\u{884c}\u{6807}\u{8bc6}\u{5217}").size(11.0).color(palette.muted));
+                ui.add(
+                    egui::TextEdit::singleline(key_column)
+                        .desired_width(ui.available_width())
+                        .hint_text("time（\u{81ea}\u{52a8}\u{68c0}\u{6d4b}）")
+                );
+                ui.label(
+                    RichText::new("\u{81ea}\u{52a8}\u{68c0}\u{6d4b}: time → tradeDay。\u{7559}\u{7a7a}\u{4f7f}\u{7528}\u{81ea}\u{52a8}\u{68c0}\u{6d4b}")
+                        .size(10.0)
+                        .color(palette.null),
+                );
+
+                ui.add_space(8.0);
+
+                // Python environment
+                ui.label(RichText::new("Python \u{73af}\u{5883}").size(11.0).color(palette.muted));
+                egui::ComboBox::from_id_salt("python_env")
+                    .width(ui.available_width())
+                    .selected_text(python_path.as_str())
+                    .show_ui(ui, |ui| {
+                        for py in available_pythons.iter() {
+                            ui.selectable_value(python_path, py.clone(), py.as_str());
+                        }
+                    });
+
+                // Rescan button
+                if ui.button("\u{91cd}\u{65b0}\u{626b}\u{63cf} Python \u{73af}\u{5883}").clicked() {
+                    let found = compare::detect_python_installations();
+                    if !found.is_empty() {
+                        *python_path = found[0].clone();
+                    }
+                    *available_pythons = found;
+                }
+
+                ui.add_space(10.0);
+
+                // Show all checkbox
+                ui.checkbox(show_all, "\u{663e}\u{793a}\u{6240}\u{6709}\u{884c}（\u{4e0d}\u{52fe}\u{9009}\u{4ec5}\u{663e}\u{793a}\u{5dee}\u{5f02}）");
+
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(8.0);
+
+                // Buttons
+                ui.horizontal(|ui| {
+                    if ui.button("\u{53d6}\u{6d88}").clicked() {
+                        should_close = true;
+                    }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let can_start = !left_path.is_empty()
+                            && !right_path.is_empty()
+                            && !python_path.is_empty();
+                        if ui.add_enabled(
+                            can_start,
+                            egui::Button::new(RichText::new("\u{5f00}\u{59cb}\u{5bf9}\u{6bd4}").color(palette.text)),
+                        ).clicked() {
+                            start_clicked = true;
+                            should_close = true;
+                        }
+                    });
+                });
+            });
+
+        if !open || should_close {
+            *compare_state = compare::CompareState::Hidden;
+        }
+    }
+
+    start_clicked
 }
 
 // ── Metadata dialog ───────────────────────────────────────────────────────────
