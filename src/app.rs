@@ -213,6 +213,38 @@ impl ParquetApp {
         }
     }
 
+    fn poll_compare(&mut self, ctx: &egui::Context) {
+        if let compare::CompareState::Running { rx, show_all } = &self.compare_state {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    compare::CompareResult::Ok(summary) => {
+                        let output_dir = self.compare_output_dir.clone().unwrap_or_default();
+                        let file_name = if *show_all {
+                            "compare_total.parquet"
+                        } else {
+                            "compare_diff.parquet"
+                        };
+                        let result_path = std::path::PathBuf::from(&output_dir)
+                            .join(file_name)
+                            .to_string_lossy()
+                            .to_string();
+
+                        self.compare_summary = Some(summary);
+                        self.compare_state = compare::CompareState::Hidden;
+                        self.start_load(result_path);
+                    }
+                    compare::CompareResult::Err(e) => {
+                        self.compare_state = compare::CompareState::Hidden;
+                        self.state = State::Error(e);
+                    }
+                }
+                ctx.request_repaint();
+            } else {
+                ctx.request_repaint();
+            }
+        }
+    }
+
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         ctx.input(|i| {
             if let Some(dropped) = i.raw.dropped_files.first() {
@@ -238,10 +270,56 @@ impl eframe::App for ParquetApp {
         let palette = if self.dark_mode { Palette::dark() } else { Palette::light() };
 
         self.poll_loader(ctx);
+        self.poll_compare(ctx);
         self.handle_dropped_files(ctx);
 
         // Render compare dialog
-        let _start_compare = draw_compare_dialog(ctx, &mut self.compare_state, &palette);
+        let start_compare = draw_compare_dialog(ctx, &mut self.compare_state, &palette);
+
+        if start_compare {
+            if let compare::CompareState::Setup {
+                left_path,
+                right_path,
+                key_column,
+                python_path,
+                show_all,
+                ..
+            } = &self.compare_state
+            {
+                // Save current file path for "back" functionality
+                self.before_compare_path = match &self.state {
+                    State::Loaded(data, _) => Some(data.file_path.clone()),
+                    _ => None,
+                };
+
+                // Generate output directory
+                let output_dir = compare::make_output_dir().unwrap_or_else(|| {
+                    format!(
+                        ".comparisons/compare_{}",
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    )
+                });
+
+                // Save show_all and output_dir
+                self.compare_output_dir = Some(output_dir.clone());
+
+                // Start async comparison
+                let rx = compare::run_compare_async(
+                    python_path.clone(),
+                    left_path.clone(),
+                    right_path.clone(),
+                    key_column.clone(),
+                    output_dir,
+                );
+                self.compare_state = compare::CompareState::Running {
+                    rx,
+                    show_all: *show_all,
+                };
+            }
+        }
 
         // Keyboard shortcuts
         ctx.input(|i| {
@@ -252,6 +330,22 @@ impl eframe::App for ParquetApp {
                 }
             }
         });
+
+        // Show comparison progress
+        if let compare::CompareState::Running { .. } = &self.compare_state {
+            egui::Window::new("对比中...")
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.visuals_mut().override_text_color = Some(palette.text);
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.add_space(8.0);
+                        ui.label("正在对比文件...");
+                    });
+                });
+        }
 
         let loaded_row_count = match &self.state {
             State::Loaded(data, _) => Some(data.row_count),

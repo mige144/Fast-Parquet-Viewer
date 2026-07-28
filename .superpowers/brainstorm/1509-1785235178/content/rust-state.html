@@ -1,0 +1,173 @@
+<h2>Rust Side: State &amp; UI Design</h2>
+<p class="subtitle">How the compare dialog integrates into the existing app</p>
+
+<div class="section">
+  <h3>State Machine (in ParquetApp)</h3>
+</div>
+
+<div class="mockup">
+  <div class="mockup-body" style="padding:20px;font-family:monospace;font-size:12px;color:#c8cad6;text-align:center;">
+
+    <div style="display:flex;justify-content:center;align-items:center;gap:12px;flex-wrap:wrap;line-height:2.2;">
+
+      <div style="background:#1a3a2a;border:1px solid #44b478;border-radius:8px;padding:10px 16px;text-align:center;">
+        <div style="color:#44b478;font-weight:600;">Normal</div>
+        <div style="font-size:11px;color:#8890a4;">Empty / Loading / Loaded / Error</div>
+      </div>
+
+      <div style="color:#5291e6;font-size:20px;">→</div>
+
+      <div style="background:#1a2a3a;border:1px solid #5291e6;border-radius:8px;padding:10px 16px;text-align:center;">
+        <div style="color:#5291e6;font-weight:600;">Compare Dialog</div>
+        <div style="font-size:11px;color:#8890a4;">open via toolbar "Compare" button</div>
+      </div>
+
+      <div style="color:#5291e6;font-size:20px;">→</div>
+
+      <div style="background:#2a2a1a;border:1px solid #e6c052;border-radius:8px;padding:10px 16px;text-align:center;">
+        <div style="color:#e6c052;font-weight:600;">Running Python...</div>
+        <div style="font-size:11px;color:#8890a4;">spawn subprocess, poll result</div>
+      </div>
+
+      <div style="color:#5291e6;font-size:20px;">→</div>
+
+      <div style="background:#1a3a2a;border:1px solid #44b478;border-radius:8px;padding:10px 16px;text-align:center;">
+        <div style="color:#44b478;font-weight:600;">View Result</div>
+        <div style="font-size:11px;color:#8890a4;">Loaded(result.parquet)</div>
+        <div style="font-size:11px;color:#8890a4;">same table viewer!</div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <h3>New UI Elements</h3>
+</div>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">1. Toolbar adds "Compare" button</div>
+    <div class="mockup-body" style="padding:12px;font-family:monospace;font-size:12px;color:#b0b3c0;background:#1e1f2a;">
+
+      <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;border-bottom:1px solid #2a2b38;">
+        <span style="color:#5291e6;">Open…</span>
+        <span style="color:#505266;">│</span>
+        <span style="color:#808595;">Ctrl+O open</span>
+        <span style="color:#505266;">│</span>
+        <span style="color:#e6c052;font-weight:600;">Compare…</span>  ← new
+        <span style="color:#505266;">│</span>
+        <span style="color:#808595;">Rows from [0] to [5000]</span>
+        <span style="color:#505266;">│</span>
+        <span style="color:#808595;">Filter [...] clear</span>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">2. Compare Result Toolbar (when viewing result)</div>
+    <div class="mockup-body" style="padding:12px;font-family:monospace;font-size:12px;color:#b0b3c0;background:#1e1f2a;">
+
+      <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;border-bottom:1px solid #2a2b38;">
+        <span style="color:#5291e6;">Open…</span>
+        <span style="color:#505266;">│</span>
+        <span style="color:#44b478;font-weight:600;">⬅ Back to view</span>
+        <span style="color:#505266;">│</span>
+        <span style="font-weight:600;">Diff only</span>
+        <span style="background:#5291e6;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px;">ON</span>
+        <span style="color:#808595;">show all</span>
+        <span style="color:#505266;">│</span>
+        <span style="color:#808595;">42 differences / 1000 rows</span>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>The Compare Dialog (Layout A — refined)</h3>
+</div>
+
+<div class="mockup">
+  <div class="mockup-body">
+    <div style="padding:18px 20px;font-family:system-ui,sans-serif;font-size:13px;color:#c8cad6;max-width:500px;margin:0 auto;">
+
+      <div style="font-size:16px;font-weight:600;margin-bottom:16px;color:#e0e2ec;">Compare Files</div>
+
+      <div style="margin-bottom:12px;">
+        <div style="color:#808595;font-size:11px;margin-bottom:4px;">LEFT FILE</div>
+        <div style="display:flex;gap:6px;">
+          <input class="mock-input" style="flex:1;" placeholder="D:/data/file_a.parquet">
+          <button class="mock-button">Browse</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <div style="color:#808595;font-size:11px;margin-bottom:4px;">RIGHT FILE</div>
+        <div style="display:flex;gap:6px;">
+          <input class="mock-input" style="flex:1;" placeholder="D:/data/file_b.csv">
+          <button class="mock-button">Browse</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <div style="color:#808595;font-size:11px;margin-bottom:4px;">ROW KEY COLUMN</div>
+        <input class="mock-input" style="width:100%;" value="time (auto-detected)" readonly="">
+        <div style="font-size:10px;color:#606580;margin-top:2px;">Auto: 'time' &gt; 'tradeDay'. Click to choose another.</div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <div style="color:#808595;font-size:11px;margin-bottom:4px;">PYTHON ENVIRONMENT</div>
+        <input class="mock-input" style="width:100%;" value="C:/Users/.../miniconda3/envs/data/bin/python" readonly="">
+        <div style="font-size:10px;color:#606580;margin-top:2px;">Auto-detected on startup. Rescan available.</div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:8px;margin:16px 0;">
+        <input type="checkbox" id="showAll3" style="accent-color:#5291e6;width:16px;height:16px;">
+        <label for="showAll3" style="font-size:13px;color:#b0b3c0;">Show all rows (unchecked = differences only)</label>
+      </div>
+
+      <hr style="border:none;border-top:1px solid #2a2b38;margin:12px 0;">
+
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button class="mock-button" style="opacity:0.6;">Cancel</button>
+        <button class="mock-button" style="background:#5291e6;color:#fff;font-weight:600;">Start Compare</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>After Comparison: Switch Between Total / Diff</h3>
+</div>
+
+<div class="mockup">
+  <div class="mockup-body" style="padding:20px;font-family:system-ui,sans-serif;font-size:13px;color:#c8cad6;text-align:center;">
+
+    <div style="color:#808595;font-size:12px;margin-bottom:12px;">
+      Both parquet files are available. A toggle in toolbar lets user switch without re-comparing:
+    </div>
+
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+      <div style="background:#1a1b24;border-radius:6px;padding:12px 20px;text-align:center;min-width:160px;">
+        <div style="font-size:10px;color:#808595;margin-bottom:4px;">TOGGLE OFF (default)</div>
+        <div style="font-weight:600;color:#e6c052;">compare_diff.parquet</div>
+        <div style="font-size:11px;color:#808595;">shows differences only</div>
+      </div>
+      <div style="color:#505266;align-self:center;">⇄</div>
+      <div style="background:#1a1b24;border-radius:6px;padding:12px 20px;text-align:center;min-width:160px;">
+        <div style="font-size:10px;color:#808595;margin-bottom:4px;">TOGGLE ON</div>
+        <div style="font-weight:600;color:#44b478;">compare_total.parquet</div>
+        <div style="font-size:11px;color:#808595;">shows all rows</div>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;font-size:11px;color:#606580;">
+      Toggle is instant — both files already on disk, just load the other one.
+    </div>
+
+  </div>
+</div>

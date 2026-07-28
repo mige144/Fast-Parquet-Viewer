@@ -1,0 +1,183 @@
+<h2>Compare: setup dialog mockup</h2>
+<p class="subtitle">A single dialog handles everything — select files, Python env, and options, then start comparison</p>
+
+<!-- Layout A -->
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Layout A — Compact (Recommended)</div>
+    <div class="mockup-body">
+      <div style="padding:16px;font-family:system-ui,sans-serif;font-size:13px;color:#c8cad6;">
+        <div style="font-size:15px;font-weight:600;margin-bottom:14px;color:#e0e2ec;">Compare Files</div>
+
+        <div style="margin-bottom:10px;">
+          <div class="label" style="margin-bottom:4px;">Left file</div>
+          <div style="display:flex;gap:6px;">
+            <input class="mock-input" style="flex:1;" placeholder="select file...">
+            <button class="mock-button">Browse</button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <div class="label" style="margin-bottom:4px;">Right file</div>
+          <div style="display:flex;gap:6px;">
+            <input class="mock-input" style="flex:1;" placeholder="select file...">
+            <button class="mock-button">Browse</button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <div class="label" style="margin-bottom:4px;">Row identifier</div>
+          <input class="mock-input" style="width:100%;" value="time (auto-detected)" readonly="">
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <div class="label" style="margin-bottom:4px;">Python environment</div>
+          <input class="mock-input" style="width:100%;" value="python3 (default)" readonly="">
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+          <input type="checkbox" id="showAll" checked="" style="accent-color:#5291e6;">
+          <label for="showAll" style="font-size:13px;color:#b0b3c0;">Show all rows (unchecked = diff only)</label>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button class="mock-button" style="opacity:0.6;">Cancel</button>
+          <button class="mock-button" style="background:#5291e6;color:#fff;">Start Compare</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Layout B — Wider with File Type Icons</div>
+    <div class="mockup-body">
+      <div style="padding:16px;font-family:system-ui,sans-serif;font-size:13px;color:#c8cad6;">
+        <div style="font-size:15px;font-weight:600;margin-bottom:14px;color:#e0e2ec;">Compare Files</div>
+
+        <div style="margin-bottom:12px;">
+          <div class="label" style="margin-bottom:4px;">Left file</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span style="font-size:18px;">📊</span>
+            <span style="flex:1;font-family:monospace;font-size:12px;background:#20222e;padding:4px 8px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">D:/data/file_a.parquet</span>
+            <button class="mock-button" style="font-size:11px;padding:2px 8px;">Browse</button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <div class="label" style="margin-bottom:4px;">Right file</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span style="font-size:16px;">📄</span>
+            <span style="flex:1;font-family:monospace;font-size:12px;background:#20222e;padding:4px 8px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">D:/data/file_b.csv</span>
+            <button class="mock-button" style="font-size:11px;padding:2px 8px;">Browse</button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <div class="label" style="margin-bottom:4px;">Row key column</div>
+          <div style="display:flex;gap:6px;">
+            <input class="mock-input" style="flex:1;" value="time (auto)" readonly="">
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <div class="label" style="margin-bottom:4px;">Python</div>
+          <div style="display:flex;gap:6px;">
+            <input class="mock-input" style="flex:1;" value="conda: data_analysis" readonly="">
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+          <input type="checkbox" id="showAllB" checked="" style="accent-color:#5291e6;">
+          <label for="showAllB" style="font-size:13px;color:#b0b3c0;">Show all rows</label>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button class="mock-button" style="opacity:0.6;">Cancel</button>
+          <button class="mock-button" style="background:#5291e6;color:#fff;">Start Compare</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Flow explanation -->
+<div class="section">
+  <h3>Comparison Flow</h3>
+</div>
+
+<div class="mockup" style="margin-top:0;">
+  <div class="mockup-header">Step-by-step flow</div>
+  <div class="mockup-body">
+    <div style="padding:16px;font-family:system-ui,sans-serif;font-size:13px;color:#c8cad6;text-align:center;line-height:2;">
+
+      <div style="display:flex;justify-content:center;align-items:center;gap:20px;flex-wrap:wrap;">
+
+        <div style="background:#20222e;border-radius:8px;padding:12px 20px;min-width:140px;">
+          <div style="font-size:24px;margin-bottom:6px;">⚙️</div>
+          <div style="font-weight:600;color:#e0e2ec;">Setup Dialog</div>
+          <div style="font-size:11px;color:#808595;">pick files, key, Python</div>
+        </div>
+
+        <div style="color:#5291e6;font-size:20px;">→</div>
+
+        <div style="background:#20222e;border-radius:8px;padding:12px 20px;min-width:140px;">
+          <div style="font-size:24px;margin-bottom:6px;">🐍</div>
+          <div style="font-weight:600;color:#e0e2ec;">Python Compare</div>
+          <div style="font-size:11px;color:#808595;">pandas join + diff</div>
+        </div>
+
+        <div style="color:#5291e6;font-size:20px;">→</div>
+
+        <div style="background:#20222e;border-radius:8px;padding:12px 20px;min-width:140px;">
+          <div style="font-size:24px;margin-bottom:6px;">📊</div>
+          <div style="font-weight:600;color:#e0e2ec;">View Result</div>
+          <div style="font-size:11px;color:#808595;">load result.parquet</div>
+        </div>
+
+      </div>
+
+      <div style="margin-top:16px;font-size:12px;color:#808595;">
+        Result parquet columns look like:<br>
+        <code style="color:#b0b3c0;">[time] [left.price] [right.price] [left.volume] [right.volume] ...</code>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Python env selection mockup -->
+<div class="section">
+  <h3>Python Environment Selection</h3>
+</div>
+
+<div class="mockup">
+  <div class="mockup-header">Python env dropdown behavior</div>
+  <div class="mockup-body">
+    <div style="padding:16px;font-family:system-ui,sans-serif;font-size:13px;color:#c8cad6;">
+
+      <div style="margin-bottom:12px;">
+        <div class="label" style="margin-bottom:4px;">Detection at startup</div>
+        <div style="font-size:12px;color:#808595;margin-bottom:8px;">Rust scans common locations for Python installations:</div>
+
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <div style="background:#1a1b24;border-radius:6px;padding:10px 14px;flex:1;min-width:180px;">
+            <div style="font-weight:600;color:#5291e6;margin-bottom:4px;">🔍 Default Python</div>
+            <div style="font-size:11px;font-family:monospace;color:#b0b3c0;">python3<br>python<br>%PATH%</div>
+          </div>
+
+          <div style="background:#1a1b24;border-radius:6px;padding:10px 14px;flex:1;min-width:180px;">
+            <div style="font-weight:600;color:#44b478;margin-bottom:4px;">🐍 Conda Envs</div>
+            <div style="font-size:11px;font-family:monospace;color:#b0b3c0;">~/miniconda3/envs/*<br>~/anaconda3/envs/*<br>%USERPROFILE%/.conda/*</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;font-size:12px;color:#808595;">
+        Dropdown lists all found Python executables.<br>
+        First run: auto-detect. User can re-scan or enter custom path.<br>
+        Selection persisted across sessions via eframe storage.
+      </div>
+
+    </div>
+  </div>
+</div>
