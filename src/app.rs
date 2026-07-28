@@ -450,6 +450,82 @@ impl eframe::App for ParquetApp {
                         }
                     }
 
+                    // ── 对比结果工具栏 ──
+                    let has_compare = self.compare_summary.is_some() && self.compare_output_dir.is_some();
+                    if has_compare {
+                        // Only show when currently viewing a comparison result
+                        let is_viewing_result = match &self.state {
+                            State::Loaded(data, _) => {
+                                data.file_path.contains("compare_diff")
+                                    || data.file_path.contains("compare_total")
+                            }
+                            _ => false,
+                        };
+
+                        if is_viewing_result {
+                            // Extract comparison values early to avoid holding borrows across mutable operations
+                            let output_dir = self.compare_output_dir.clone().unwrap_or_default();
+                            let (diff_rows, total_rows, only_left, only_right, identical) = {
+                                let s = self.compare_summary.as_ref().unwrap();
+                                (s.diff_rows, s.total_rows, s.only_left, s.only_right, s.identical)
+                            };
+
+                            ui.add_space(4.0);
+                            ui.add(egui::Separator::default().vertical().spacing(8.0));
+                            ui.add_space(4.0);
+
+                            // Back button
+                            if ui.add(egui::Button::new(
+                                RichText::new("⬅ 返回").color(palette.text).size(13.0)
+                            ).frame(false)).clicked() {
+                                if let Some(prev_path) = self.before_compare_path.take() {
+                                    self.start_load(prev_path);
+                                } else {
+                                    self.state = State::Empty;
+                                }
+                                self.compare_summary = None;
+                                self.compare_output_dir = None;
+                            }
+
+                            ui.add_space(4.0);
+                            ui.add(egui::Separator::default().vertical().spacing(8.0));
+                            ui.add_space(4.0);
+
+                            // Diff / Total toggle
+                            let current_is_diff = match &self.state {
+                                State::Loaded(data, _) => data.file_path.contains("compare_diff"),
+                                _ => false,
+                            };
+
+                            ui.label(RichText::new("仅差异").color(palette.muted).size(11.0));
+                            let mut show_diff = current_is_diff;
+                            if ui.add(egui::Checkbox::without_text(&mut show_diff)).changed() {
+                                let file_name = if show_diff {
+                                    "compare_diff.parquet"
+                                } else {
+                                    "compare_total.parquet"
+                                };
+                                let result_path = std::path::PathBuf::from(&output_dir)
+                                    .join(file_name)
+                                    .to_string_lossy()
+                                    .to_string();
+                                self.start_load(result_path);
+                            }
+
+                            ui.add_space(4.0);
+                            ui.add(egui::Separator::default().vertical().spacing(8.0));
+                            ui.add_space(4.0);
+
+                            // Summary text
+                            let status_text = format!(
+                                "{} 差异 / {} 行  |  仅左:{}  仅右:{}  相同:{}",
+                                diff_rows, total_rows,
+                                only_left, only_right, identical
+                            );
+                            ui.label(RichText::new(status_text).color(palette.muted).size(11.0));
+                        }
+                    }
+
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let has_data = matches!(self.state, State::Loaded(_, _));
                         let label = if self.dark_mode { "☀ Light" } else { "🌙 Dark" };
