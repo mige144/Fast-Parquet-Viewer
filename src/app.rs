@@ -94,6 +94,7 @@ pub struct ParquetApp {
     compare_summary: Option<compare::CompareSummary>,
     before_compare_path: Option<String>,
     available_pythons: Vec<String>,
+    is_viewing_compare_result: bool,
 }
 
 impl ParquetApp {
@@ -122,6 +123,7 @@ impl ParquetApp {
             compare_summary: None,
             before_compare_path: None,
             available_pythons,
+            is_viewing_compare_result: false,
         };
         let palette = if dark_mode { Palette::dark() } else { Palette::light() };
         style_egui(&cc.egui_ctx, &palette, dark_mode);
@@ -136,6 +138,7 @@ impl ParquetApp {
         self.state = State::Loading;
         self.search.clear();
         self.show_meta = false;
+        self.is_viewing_compare_result = false;
         let (tx, rx) = mpsc::channel();
         self.rx = Some(rx);
         loader::load_async(path, tx);
@@ -232,6 +235,7 @@ impl ParquetApp {
                         self.compare_summary = Some(summary);
                         self.compare_state = compare::CompareState::Hidden;
                         self.start_load(result_path);
+                        self.is_viewing_compare_result = true;
                     }
                     compare::CompareResult::Err(e) => {
                         self.compare_state = compare::CompareState::Hidden;
@@ -452,17 +456,7 @@ impl eframe::App for ParquetApp {
 
                     // ── 对比结果工具栏 ──
                     let has_compare = self.compare_summary.is_some() && self.compare_output_dir.is_some();
-                    if has_compare {
-                        // Only show when currently viewing a comparison result
-                        let is_viewing_result = match &self.state {
-                            State::Loaded(data, _) => {
-                                data.file_path.contains("compare_diff")
-                                    || data.file_path.contains("compare_total")
-                            }
-                            _ => false,
-                        };
-
-                        if is_viewing_result {
+                    if has_compare && self.is_viewing_compare_result {
                             // Extract comparison values early to avoid holding borrows across mutable operations
                             let output_dir = self.compare_output_dir.clone().unwrap_or_default();
                             let (diff_rows, total_rows, only_left, only_right, identical) = {
@@ -478,6 +472,7 @@ impl eframe::App for ParquetApp {
                             if ui.add(egui::Button::new(
                                 RichText::new("⬅ 返回").color(palette.text).size(13.0)
                             ).frame(false)).clicked() {
+                                self.is_viewing_compare_result = false;
                                 if let Some(prev_path) = self.before_compare_path.take() {
                                     self.start_load(prev_path);
                                 } else {
@@ -523,7 +518,6 @@ impl eframe::App for ParquetApp {
                                 only_left, only_right, identical
                             );
                             ui.label(RichText::new(status_text).color(palette.muted).size(11.0));
-                        }
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

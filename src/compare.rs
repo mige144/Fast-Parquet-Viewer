@@ -54,7 +54,10 @@ impl CompareState {
 pub fn detect_python_installations() -> Vec<String> {
     let mut pythons: Vec<String> = Vec::new();
 
-    // 1. 检查系统 PATH 中的 python3 和 python
+    // 1. 检查系统 PATH 中的 py (Windows launcher), python3 和 python
+    if Command::new("py").arg("--version").output().is_ok() {
+        pythons.push("py".to_string());
+    }
     for name in &["python3", "python"] {
         if Command::new(name).arg("--version").output().is_ok() {
             pythons.push(name.to_string());
@@ -62,7 +65,10 @@ pub fn detect_python_installations() -> Vec<String> {
     }
 
     // 2. 扫描 conda 环境
-    if let Ok(home) = std::env::var("USERPROFILE") {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_default();
+    if !home.is_empty() {
         // Miniconda / Anaconda envs
         for base in &["miniconda3", "anaconda3"] {
             let envs_dir = PathBuf::from(&home).join(base).join("envs");
@@ -98,16 +104,25 @@ pub fn detect_python_installations() -> Vec<String> {
     pythons
 }
 
-/// 生成对比输出目录路径（基于 exe 目录下的 .comparisons/）
+/// 生成对比输出目录路径（平台用户数据目录下的 .comparisons/）
 pub fn make_output_dir() -> Option<String> {
-    let exe_dir = std::env::current_exe()
-        .ok()?
-        .parent()
-        .map(|p| p.to_path_buf())?;
-
+    let data_dir = user_data_dir()?;
     let dir_name = timestamp_dir_name();
-    let output = exe_dir.join(".comparisons").join(&dir_name);
+    let output = data_dir.join(".comparisons").join(&dir_name);
     Some(output.to_string_lossy().to_string())
+}
+
+fn user_data_dir() -> Option<PathBuf> {
+    if cfg!(target_os = "windows") {
+        std::env::var("LOCALAPPDATA").ok().map(|d| PathBuf::from(d).join("FastParquetViewer"))
+    } else {
+        let home = std::env::var("HOME").ok()?;
+        if cfg!(target_os = "macos") {
+            Some(PathBuf::from(&home).join("Library/Application Support/FastParquetViewer"))
+        } else {
+            Some(PathBuf::from(&home).join(".local/share/FastParquetViewer"))
+        }
+    }
 }
 
 fn timestamp_dir_name() -> String {

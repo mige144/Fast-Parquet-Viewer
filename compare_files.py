@@ -70,6 +70,16 @@ def compare(left_path: str, right_path: str, key_arg: str | None, output_dir: st
     all_common_cols = sorted(set(left_cols) | set(right_cols))
 
     # 4. Outer join on key
+    # 先移除 null key 值（避免 NaN → "nan" 字符串导致误匹）
+    null_left = df_left[key_col].isna()
+    null_right = df_right[key_col].isna()
+    if null_left.any() or null_right.any():
+        dropped_left = null_left.sum()
+        dropped_right = null_right.sum()
+        df_left = df_left[~null_left].copy()
+        df_right = df_right[~null_right].copy()
+        print(f"警告: 已移除 {dropped_left} 行(左) / {dropped_right} 行(右) 的 null key 值", file=sys.stderr)
+
     df_left[key_col] = df_left[key_col].astype(str)
     df_right[key_col] = df_right[key_col].astype(str)
 
