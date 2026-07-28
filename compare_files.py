@@ -93,18 +93,22 @@ def compare(left_path: str, right_path: str, key_arg: str | None, output_dir: st
     status_series[~in_left_series & in_right_series] = "only_right"
 
     # 对比公共列：仅在 status 仍为 "identical" 的行上比较
-    mask = status_series == "identical"
     for col in all_common_cols:
+        mask = status_series == "identical"  # recompute each iteration
+
         left_col_name = f"{col}_LEFT_"
         right_col_name = f"{col}_RIGHT_"
 
         left_vals = joined[left_col_name] if left_col_name in joined_columns_set else pd.Series(np.nan, index=joined.index)
         right_vals = joined[right_col_name] if right_col_name in joined_columns_set else pd.Series(np.nan, index=joined.index)
 
-        # 转为字符串比较，NaN -> "nan"，两者均为 NaN 时视为相等
-        left_str = left_vals.astype(str)
-        right_str = right_vals.astype(str)
-        not_equal = (left_str != right_str) & mask
+        # Compare values: both-NaN treated as identical
+        both_null = left_vals.isna() & right_vals.isna()
+        try:
+            not_equal = (left_vals != right_vals) & mask & ~both_null
+        except (TypeError, ValueError):
+            # Fallback to string comparison for mixed types
+            not_equal = (left_vals.astype(str) != right_vals.astype(str)) & mask & ~both_null
         status_series[not_equal] = "different"
 
     # 构建结果 DataFrame
