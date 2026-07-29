@@ -572,13 +572,14 @@ impl eframe::App for ParquetApp {
                                     .filter(|&&ri| ri >= self.row_from && ri <= self.row_to)
                                     .count()
                             };
+                            let total_rows = data.row_count;
                             let size_str = fmt_size(data.file_size);
                             let mut status = format!(
-                                "{} rows  ×  {} cols   │   {}   │   {}",
-                                fmt_num(visible), data.col_count, size_str, data.file_path
+                                "{} / {} rows  ×  {} cols   │   {}   │   {}",
+                                fmt_num(visible), fmt_num(total_rows), data.col_count, size_str, data.file_path
                             );
                             if let Some(selected) = ts.selected_row {
-                                status.push_str(&format!("   │   selected row {selected}"));
+                                status.push_str(&format!("   │   row {selected}"));
                             }
                             ui.label(
                                 RichText::new(status)
@@ -590,18 +591,6 @@ impl eframe::App for ParquetApp {
                             ui.label(RichText::new(format!("Error: {e}")).color(Color32::from_rgb(230, 80, 80)).size(12.0));
                         }
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let resp = ui.add(
-                            egui::Label::new(
-                                RichText::new("Created by Jakob Aungiers")
-                                    .color(palette.muted)
-                                    .size(11.0)
-                            ).sense(egui::Sense::click())
-                        ).on_hover_cursor(egui::CursorIcon::PointingHand);
-                        if resp.clicked() {
-                            ui.ctx().open_url(egui::OpenUrl::new_tab("https://jakob-aungiers.com"));
-                        }
-                    });
                 });
             });
 
