@@ -165,15 +165,23 @@ def compare(left_path: str, right_path: str, key_arg: str | None, output_dir: st
 
 def main():
     parser = argparse.ArgumentParser(description="对比两个数据文件")
+    parser.add_argument("--mode", choices=["compare", "columns"], default="compare",
+                        help="模式: compare=对比, columns=仅列出列名")
     parser.add_argument("--left", required=True, help="左侧文件路径")
     parser.add_argument("--right", required=True, help="右侧文件路径")
     parser.add_argument("--key", default=None, help="行标识列名（省略时自动检测）")
-    parser.add_argument("--output", required=True, help="结果输出目录")
+    parser.add_argument("--output", default=".", help="结果输出目录")
     args = parser.parse_args()
 
     try:
-        result = compare(args.left, args.right, args.key, args.output)
-        print(json.dumps(result, ensure_ascii=False))
+        if args.mode == "columns":
+            df_left = load_file(args.left)
+            df_right = load_file(args.right)
+            common = sorted(set(df_left.columns) & set(df_right.columns))
+            print(json.dumps({"ok": True, "columns": common}, ensure_ascii=False))
+        else:
+            result = compare(args.left, args.right, args.key, args.output)
+            print(json.dumps(result, ensure_ascii=False))
     except Exception as e:
         print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
         sys.exit(1)

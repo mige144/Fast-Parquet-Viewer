@@ -20,6 +20,12 @@ pub enum CompareResult {
     Err(String),
 }
 
+/// 列名检测结果
+pub enum ColumnDetectResult {
+    Ok(Vec<String>),
+    Err(String),
+}
+
 /// 对比对话框状态
 pub enum CompareState {
     Hidden,
@@ -30,6 +36,8 @@ pub enum CompareState {
         python_path: String,
         show_all: bool,
         available_pythons: Vec<String>,
+        available_columns: Vec<String>,
+        column_detect_rx: Option<mpsc::Receiver<ColumnDetectResult>>,
     },
     Running {
         rx: mpsc::Receiver<CompareResult>,
@@ -46,6 +54,8 @@ impl CompareState {
             python_path: default_python,
             show_all: false,
             available_pythons,
+            available_columns: Vec::new(),
+            column_detect_rx: None,
         }
     }
 }
@@ -248,4 +258,78 @@ pub fn run_compare_async(
     });
 
     rx
+}
+
+/// 检测两个文件的共有列（异步，后台线程运行 Python --mode columns）
+pub fn detect_columns_async(
+    python_path: String,
+    left_path: String,
+    right_path: String,
+) -> mpsc::Receiver<ColumnDetectResult> {
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        let script = exe_dir
+            .as_ref()
+            .map(|d| d.join("compare_files.py"))
+            .unwrap_or_else(|| PathBuf::from("compare_files.py"));
+
+        let output = match Command::new(&python_path)
+            .arg(script.to_string_lossy().as_ref())
+            .arg("--mode").arg("columns")
+            .arg("--left").arg(&left_path)
+            .arg("--right").arg(&right_path)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) => {
+                let _ = tx.send(ColumnDetectResult::Err(format!("{e}")));
+                return;
+            }
+        };
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let _ = tx.send(ColumnDetectResult::Err(stderr.to_string()));
+            return;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let last_line = stdout.lines().last().unwrap_or("");
+
+        match serde_json::from_str::<serde_json::Value>(last_line) {
+            Ok(json) => {
+                if let Some(cols) = json.get("columns").and_then(|v| v.as_array()) {
+                    let columns: Vec<String> = cols
+                        .iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect();
+                    let _ = tx.send(ColumnDetectResult::Ok(columns));
+                } else {
+                    let err = json["error"].as_str().unwrap_or("未知错误");
+                    let _ = tx.send(ColumnDetectResult::Err(err.to_string()));
+                }
+            }
+            Err(_) => {
+                let _ = tx.send(ColumnDetectResult::Err("无法解析列名输出".to_string()));
+            }
+        }
+    });
+
+    rx
+}
+
+/// 根据可用列自动选择默认 key 列：time > tradeDay > 第一个
+pub fn default_key_column(columns: &[String]) -> String {
+    for candidate in &["time", "tradeDay"] {
+        if columns.iter().any(|c| c == candidate) {
+            return candidate.to_string();
+        }
+    }
+    columns.first().cloned().unwrap_or_default()
 }

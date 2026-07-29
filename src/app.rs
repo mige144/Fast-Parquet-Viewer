@@ -712,14 +712,19 @@ fn draw_compare_dialog(
         python_path,
         show_all,
         available_pythons,
+        available_columns,
+        column_detect_rx,
     } = compare_state
     {
         let mut open = true;
         let mut should_close = false;
+        let screen_size = ctx.screen_rect().size();
+        let default_size = egui::Vec2::new(screen_size.x * 0.5, screen_size.y * 0.5);
         egui::Window::new("\u{5bf9}\u{6bd4}\u{6587}\u{4ef6}")
             .open(&mut open)
-            .resizable(false)
-            .collapsible(false)
+            .resizable(true)
+            .collapsible(true)
+            .default_size(default_size)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.set_min_width(480.0);
@@ -731,16 +736,23 @@ fn draw_compare_dialog(
                 // Left file
                 ui.label(RichText::new("\u{5de6}\u{4fa7}\u{6587}\u{4ef6}").size(11.0).color(palette.muted));
                 ui.horizontal(|ui| {
-                    let text_edit = egui::TextEdit::singleline(left_path)
-                        .desired_width(ui.available_width() - 56.0)
-                        .hint_text("\u{9009}\u{62e9}\u{6587}\u{4ef6}...");
-                    ui.add(text_edit);
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(left_path)
+                            .desired_width(ui.available_width() - 56.0)
+                            .hint_text("\u{9009}\u{62e9}\u{6587}\u{4ef6}...")
+                    );
+                    if resp.changed() {
+                        available_columns.clear();
+                        *column_detect_rx = None;
+                    }
                     if ui.button("\u{6d4f}\u{89c8}").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("\u{6570}\u{636e}\u{6587}\u{4ef6}", &["parquet", "parq", "csv", "zip"])
                             .pick_file()
                         {
                             *left_path = path.to_string_lossy().to_string();
+                            available_columns.clear();
+                            *column_detect_rx = None;
                         }
                     }
                 });
@@ -750,34 +762,84 @@ fn draw_compare_dialog(
                 // Right file
                 ui.label(RichText::new("\u{53f3}\u{4fa7}\u{6587}\u{4ef6}").size(11.0).color(palette.muted));
                 ui.horizontal(|ui| {
-                    let text_edit = egui::TextEdit::singleline(right_path)
-                        .desired_width(ui.available_width() - 56.0)
-                        .hint_text("\u{9009}\u{62e9}\u{6587}\u{4ef6}...");
-                    ui.add(text_edit);
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(right_path)
+                            .desired_width(ui.available_width() - 56.0)
+                            .hint_text("\u{9009}\u{62e9}\u{6587}\u{4ef6}...")
+                    );
+                    if resp.changed() {
+                        available_columns.clear();
+                        *column_detect_rx = None;
+                    }
                     if ui.button("\u{6d4f}\u{89c8}").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("\u{6570}\u{636e}\u{6587}\u{4ef6}", &["parquet", "parq", "csv", "zip"])
                             .pick_file()
                         {
                             *right_path = path.to_string_lossy().to_string();
+                            available_columns.clear();
+                            *column_detect_rx = None;
                         }
                     }
                 });
 
+                // Poll column detection
+                if let Some(rx) = column_detect_rx {
+                    if let Ok(result) = rx.try_recv() {
+                        match result {
+                            compare::ColumnDetectResult::Ok(cols) => {
+                                if !cols.is_empty() {
+                                    // Set default key: time > tradeDay > first
+                                    let default = compare::default_key_column(&cols);
+                                    if key_column.is_empty() || !cols.contains(key_column) {
+                                        *key_column = default;
+                                    }
+                                }
+                                *available_columns = cols;
+                            }
+                            compare::ColumnDetectResult::Err(_e) => {
+                                // Column detection failed silently — user can still type manually
+                            }
+                        }
+                        *column_detect_rx = None;
+                    }
+                }
+
+                // Auto-trigger column detection
+                if !left_path.is_empty()
+                    && !right_path.is_empty()
+                    && !python_path.is_empty()
+                    && column_detect_rx.is_none()
+                    && available_columns.is_empty()
+                {
+                    *column_detect_rx = Some(compare::detect_columns_async(
+                        python_path.clone(),
+                        left_path.clone(),
+                        right_path.clone(),
+                    ));
+                }
+
                 ui.add_space(8.0);
 
-                // Key column
+                // Key column — dropdown
                 ui.label(RichText::new("\u{884c}\u{6807}\u{8bc6}\u{5217}").size(11.0).color(palette.muted));
-                ui.add(
-                    egui::TextEdit::singleline(key_column)
-                        .desired_width(ui.available_width())
-                        .hint_text("time（\u{81ea}\u{52a8}\u{68c0}\u{6d4b}）")
-                );
-                ui.label(
-                    RichText::new("\u{81ea}\u{52a8}\u{68c0}\u{6d4b}: time → tradeDay。\u{7559}\u{7a7a}\u{4f7f}\u{7528}\u{81ea}\u{52a8}\u{68c0}\u{6d4b}")
-                        .size(10.0)
-                        .color(palette.null),
-                );
+                if available_columns.is_empty() {
+                    // Still detecting or no columns yet
+                    ui.add(
+                        egui::TextEdit::singleline(key_column)
+                            .desired_width(ui.available_width())
+                            .hint_text("\u{9009}\u{62e9}\u{6587}\u{4ef6}\u{540e}\u{81ea}\u{52a8}\u{68c0}\u{6d4b}...")
+                    );
+                } else {
+                    egui::ComboBox::from_id_salt("key_column")
+                        .width(ui.available_width())
+                        .selected_text(key_column.as_str())
+                        .show_ui(ui, |ui| {
+                            for col in available_columns.iter() {
+                                ui.selectable_value(key_column, col.clone(), col.as_str());
+                            }
+                        });
+                }
 
                 ui.add_space(8.0);
 
