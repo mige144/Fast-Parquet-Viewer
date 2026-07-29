@@ -126,6 +126,7 @@ impl ParquetApp {
             is_viewing_compare_result: false,
         };
         let palette = if dark_mode { Palette::dark() } else { Palette::light() };
+        load_cjk_font(&cc.egui_ctx);
         style_egui(&cc.egui_ctx, &palette, dark_mode);
         if let Some(path) = initial_file {
             app.start_load(path);
@@ -1245,6 +1246,48 @@ fn configure_scroll_style(scroll: &mut egui::style::ScrollStyle) {
     scroll.active_handle_opacity = 1.0;
     scroll.interact_background_opacity = 1.0;
     scroll.interact_handle_opacity = 1.0;
+}
+
+/// 加载系统中文字体到 egui，解决中文乱码问题
+fn load_cjk_font(ctx: &egui::Context) {
+    let font_paths: &[&str] = if cfg!(target_os = "windows") {
+        &[
+            "C:\\Windows\\Fonts\\msyh.ttc",   // Microsoft YaHei
+            "C:\\Windows\\Fonts\\simhei.ttf",  // SimHei
+            "C:\\Windows\\Fonts\\simsun.ttc",  // SimSun
+        ]
+    } else if cfg!(target_os = "macos") {
+        &[
+            "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/STHeiti Light.ttc",
+        ]
+    } else {
+        &[
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/droid-sans-fallback/DroidSansFallbackFull.ttf",
+        ]
+    };
+
+    for path in font_paths {
+        if let Ok(data) = std::fs::read(path) {
+            let mut fonts = egui::FontDefinitions::default();
+            fonts.font_data.insert(
+                "cjk".to_owned(),
+                egui::FontData::from_owned(data).into(),
+            );
+            // 将中文字体放在 Proportional 和 Monospace 字体族的最前面
+            fonts.families.get_mut(&egui::FontFamily::Proportional)
+                .unwrap()
+                .insert(0, "cjk".to_owned());
+            fonts.families.get_mut(&egui::FontFamily::Monospace)
+                .unwrap()
+                .insert(0, "cjk".to_owned());
+            ctx.set_fonts(fonts);
+            return;
+        }
+    }
 }
 
 fn apply_scroll_style(ctx: &egui::Context) {
