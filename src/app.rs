@@ -654,8 +654,34 @@ impl eframe::App for ParquetApp {
 
                     match metadata {
                         Some((summary, text)) => {
+                            // 标题行 + Copy 按钮（固定在滚动区上方）
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("Summary").size(16.0).color(palette.text));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let id = egui::Id::new("meta_copy_feedback");
+                                    let copied_until =
+                                        ui.ctx().data(|d| d.get_temp::<f64>(id)).unwrap_or(0.0);
+                                    let now = ui.input(|i| i.time);
+                                    let btn_text = if now < copied_until { "Copied!" } else { "Copy" };
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                RichText::new(btn_text).color(palette.muted).size(12.0),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .clicked()
+                                    {
+                                        ui.ctx().copy_text(text.to_owned());
+                                        ui.ctx().data_mut(|d| d.insert_temp(id, now + 1.5));
+                                    }
+                                });
+                            });
+                            ui.add_space(6.0);
+
                             egui::ScrollArea::vertical()
                                 .id_salt("metadata_scroll")
+                                .drag_to_scroll(false)
                                 .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
                                 .show(ui, |ui| {
                                     draw_meta_summary(ui, &palette, summary);
@@ -893,9 +919,6 @@ fn draw_compare_dialog(
 // ── Metadata dialog ───────────────────────────────────────────────────────────
 
 fn draw_meta_summary(ui: &mut egui::Ui, p: &Palette, summary: &MetaSummary) {
-    ui.label(RichText::new("Summary").size(16.0).color(p.text));
-    ui.add_space(6.0);
-
     egui::Grid::new("meta_file_summary")
         .num_columns(2)
         .spacing(Vec2::new(18.0, 6.0))
@@ -924,6 +947,7 @@ fn draw_meta_summary(ui: &mut egui::Ui, p: &Palette, summary: &MetaSummary) {
 
     egui::ScrollArea::horizontal()
         .id_salt("meta_columns_table")
+        .drag_to_scroll(false)
         .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
         .show(ui, |ui| {
             TableBuilder::new(ui)
